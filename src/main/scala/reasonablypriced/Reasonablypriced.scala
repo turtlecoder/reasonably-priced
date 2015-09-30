@@ -26,41 +26,14 @@ object ReasonablyPriced extends App {
       }
   }
 
-  // type class as a witness for injecting F[_] in Copro[G[_], H[_]] for some F, G and H
-  sealed trait Inject[F[_], G[_]] {
-    def inj[A](sub: F[A]): G[A]
-  }
-
   type -~>[F[_], G[_]] = Inject[F, G] // alias for Inject to used infix
 
-  object Inject {
-    // mechanics for providing implicit instances of -~>
-    implicit def injRefl[F[_]]: F -~> F = {
-      new (F -~> F) {
-        def inj[A](sub: F[A]): F[A] = sub
-      }
-    }
-    implicit def injLeft[F[_], G[_]]: F -~> Copro[F, G]#f = {
-      new (F -~> Copro[F, G]#f) {
-        def inj[A](sub: F[A]): Coproduct[F, G, A] = Coproduct(-\/(sub))
-      }
-    }
-    implicit def injRight[F[_], G[_]]: F -~> Copro[G, F]#f = {
-      new (F -~> Copro[G, F]#f) {
-        def inj[A](sub: F[A]): Coproduct[G, F, A] = Coproduct(\/-(sub))
-      }
-    }
-    implicit def injRightRecursive[F[_], G[_], H[_]](implicit I: F -~> G): F -~> Copro[H, G]#f = {
-      new (F -~> Copro[H, G]#f) {
-        def inj[A](sub: F[A]): Coproduct[H, G, A] = Coproduct(\/-(I.inj(sub)))
-      }
-    }
-    object LiftImplicit {
-      // lifting elments of a language into the Free-monad, this saves us from having a smart constructor for every element
-      // in the language. Placed in object Implicits because it collides with implicit conversion ToFunctorOps.
-      implicit def lift[F[_], G[_], A](fa: F[A])(implicit I: F -~> G): Free[G, A] = Free liftF I.inj(fa)
-    }
+  object LiftImplicit {
+    // lifting elments of a language into the Free-monad, this saves us from having a smart constructor for every element
+    // in the language. Placed in object Implicits because it collides with implicit conversion ToFunctorOps.
+    implicit def lift[F[_], G[_], A](fa: F[A])(implicit I: F -~> G): Free[G, A] = Free liftF I.inj(fa)
   }
+
 
   // ---- LANGUAGES: ----
   // Languages are encoded as a case class per element/action in the language. Actions only describe what to do without 
