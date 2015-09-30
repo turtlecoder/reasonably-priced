@@ -153,7 +153,7 @@ object ReasonablyPriced extends App {
   val program: Free.FreeC[PRG, R] = prg[PRG]
   // we have to chain Console and Printer with Id2Store to bring all interpreters in line to be of the form ... ~> Store 
   // these two steps and type annotations are neccessary
-  // This is Compose andThen Id2Store, becaus Scalaz 7.1.4 NaturalTransformation does not implement andThen
+  // This is Compose andThen Id2Store, becaus Scalaz 7.1.4 NaturalTransformation does not implement "andThen"
   val interpreter0: PRG0 ~> Store = (Id2Store compose Console) or Crudinterpreter
   val interpreter:  PRG  ~> Store = (Id2Store compose Printer) or interpreter0
   // Implements the Functor that maps it back to the interpreter...
