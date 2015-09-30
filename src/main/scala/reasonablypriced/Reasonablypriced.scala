@@ -31,7 +31,8 @@ object ReasonablyPriced extends App {
   object LiftImplicit {
     // lifting elments of a language into the Free-monad, this saves us from having a smart constructor for every element
     // in the language. Placed in object Implicits because it collides with implicit conversion ToFunctorOps.
-    implicit def lift[F[_], G[_], A](fa: F[A])(implicit I: F -~> G): Free[G, A] = Free liftF I.inj(fa)
+    // Updated to use Free monad using the Coyoneda trait, which does not require the use of a map method
+    implicit def lift[F[_], G[_], A](fa: F[A])(implicit I: F -~> G): Free.FreeC[G, A] = Free liftFC I.inj(fa)
   }
 
 
@@ -56,11 +57,12 @@ object ReasonablyPriced extends App {
     case class Warn(txt: String) extends Log[Unit]
   }
 
+  // Moved this out side of the trait. This caused major headaches for me
+  sealed trait Crud[A]
   // A language for creating, reading, updating and deleting which is generic in the key and value type
   trait GenCrudCompanion {
     type Key
     type Value
-    sealed trait Crud[A]
     case class Create(key: Key, value: Value) extends Crud[Boolean]
     case class Read(key: Key)                 extends Crud[Option[Value]]
     case class Update(key: Key, value: Value) extends Crud[Boolean]
@@ -72,7 +74,7 @@ object ReasonablyPriced extends App {
     type Key = Int
     type Value = String
   }
-  import Crud.Crud
+
 
   // ---- INTERPRETERS: ----
   // Languages can be interpreted to give meaning to the elements/actions in this language
@@ -118,15 +120,15 @@ object ReasonablyPriced extends App {
   type R = Boolean
   // we don't know what kind of language F our program is written in but all we need is to be able 
   // to inject our three used languages into this language F
-  def prg[F[_]](implicit I: Interact -~> F, C: Crud -~> F, L: Log -~> F): Free[F, R] = {
-    import Inject.LiftImplicit._ // needed to directly use language case classes instead of smart constructors
+  def prg[F[_]](implicit I: Interact -~> F, C: Crud -~> F, L: Log -~> F): Free.FreeC[F, R] = {
+    import LiftImplicit._ // needed to directly use language case classes instead of smart constructors
     import Interact._
     import Crud._
     import Log._
-    def askFor[T](question: String)(extract: String => T): Free[F, T] = {
+    def askFor[T](question: String)(extract: String => T): Free.FreeC[F, T] = {
       for {
         str <- Ask(question)
-        t   <- Try(extract(str)).toOption.fold(askFor(question)(extract))(Free.point)
+        t   <- Try(extract(str)).toOption.fold(askFor(question)(extract))(Free.pure[({type f[x]=Coyoneda[F,x]})#f, T](_))
       } yield t
     }
     for {
@@ -148,13 +150,16 @@ object ReasonablyPriced extends App {
   // we defined the type of our program language by stacking needed languages in Coproducts 
   type PRG0[A] = Coproduct[Interact, Crud, A]
   type PRG[A]  = Coproduct[Log, PRG0, A]
-  val program: Free[PRG, R] = prg[PRG]
+  val program: Free.FreeC[PRG, R] = prg[PRG]
   // we have to chain Console and Printer with Id2Store to bring all interpreters in line to be of the form ... ~> Store 
   // these two steps and type annotations are neccessary
-  val interpreter0: PRG0 ~> Store = (Console andThen Id2Store) or Crudinterpreter
-  val interpreter:  PRG  ~> Store = (Printer andThen Id2Store) or interpreter0
+  // This is Compose andThen Id2Store, becaus Scalaz 7.1.4 NaturalTransformation does not implement andThen
+  val interpreter0: PRG0 ~> Store = (Id2Store compose Console) or Crudinterpreter
+  val interpreter:  PRG  ~> Store = (Id2Store compose Printer) or interpreter0
+  // Implements the Functor that maps it back to the interpreter...
+  val coyoInterpreter = Coyoneda.liftTF(interpreter)
   // now that we have our program and a (combined) interpreter, we can run our program with this interpreter
-  val result0: Store[R] = program.foldMap(interpreter)
+  val result0: Store[R] = program.foldMap(coyoInterpreter)
   // result0 is a aggregated state function which we pass an initial state to run  
   val result: (Map[Crud.Key, Crud.Value], R) = result0.run(initial = Map.empty)
   println(result)
